@@ -1,0 +1,59 @@
+# Claude Code temporary files
+.claude/
+
+# Dependencies
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+package-lock.json
+yarn.lock
+
+# Environment variables (SENSITIVE - DO NOT COMMIT)
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env
+
+# Build outputs
+frontend/dist/
+frontend/build/
+backend/dist/
+backend/build/
+
+# IDE settings
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.editorconfig
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Testing
+coverage/
+*.coverage
+.nyc_output/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Uploaded files (user data - uncomment to ignore)
+uploads/
