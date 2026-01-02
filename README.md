@@ -496,6 +496,10 @@ If you find CampusCare helpful, please consider giving it a star! It helps other
 
 **Built with ❤️ for student mental health**
 
+---
+
+*Developed by Ayush Kumar*
+
 ![Made with Love](https://img.shields.io/badge/Made%20with-Love-ff69b4?style=for-the-badge)
 ![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
 ![React](https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black)
