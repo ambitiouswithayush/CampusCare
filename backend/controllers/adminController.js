@@ -1,5 +1,5 @@
 const ChatMessage = require('../models/ChatMessage');
-const Post = require('../models/Post');
+const Post = require('../models/post');
 const Appointment = require('../models/Appointment');
 const Mood = require('../models/Mood');
 

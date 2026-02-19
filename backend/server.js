@@ -3,6 +3,7 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const path = require('path');
 const connectDB = require('./config/db');
+const PORT = process.env.PORT || 5000;
 
 // Load environment variables
 dotenv.config();
@@ -51,8 +52,6 @@ app.get('/', (req, res) => {
 });
 
 // Start server (for local development)
-const PORT = process.env.PORT || 5000;
-
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
@@ -61,6 +60,4 @@ if (process.env.NODE_ENV !== 'production') {
 
 // Export for Vercel serverless
 module.exports = app;
-
-
 
