@@ -51,13 +51,7 @@ app.get('/', (req, res) => {
   });
 });
 
-// Start server (for local development)
-if (process.env.NODE_ENV !== 'production') {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
-}
-
-// Export for Vercel serverless
-module.exports = app;
-
+// Start server
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
