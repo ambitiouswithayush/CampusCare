@@ -58,17 +58,23 @@ Built with privacy and accessibility in mind, CampusCare empowers students to ta
 - **AI Insights**: Personalized suggestions and pattern recognition
 - **Action Tracking**: System tracks which suggestions you click for better recommendations
 
-#### AI-Powered Chat
+#### AI-Powered Chat (RAG-based)
 - **24/7 Support**: Instant responses powered by Google Gemini AI
 - **Context-Aware**: AI understands mental health context and provides appropriate guidance
+- **Retrieval-Augmented Generation**: Every resource in the library is embedded (Gemini `gemini-embedding-001`); each chat message is embedded and matched via cosine similarity, so the AI recommends *actual* resources from the library instead of generic advice
+- **Grounded Recommendations**: The AI is only allowed to cite resources that were actually retrieved, preventing hallucinated links
 - **Chat History**: Review past conversations for continuity
-- **Suggested Prompts**: Quick-start conversation starters
+- **Crisis Keyword Detection**: Flags high-risk language and immediately shows a crisis helpline
 
-#### Appointment Booking
-- **Easy Scheduling**: Book sessions with campus counselors
+#### Real-Time Notifications
+- **Live Updates via Socket.IO**: Appointment approvals, forum replies, and campus-wide announcements arrive instantly, no page refresh needed
+- **Notification Bell**: Persisted notification history in the dashboard header with unread badges, separate from ephemeral toasts
+
+#### Smart Appointment Booking
+- **Rule-Based Counselor Matching**: Instead of picking any counselor, students select a concern type (anxiety, career, depression, etc.) and get matched by specialization, current caseload, and continuity of care (whether they've seen that counselor before)
 - **Date & Time Selection**: Choose from available slots
 - **Reason Input**: Provide context for your appointment
-- **Status Tracking**: Monitor appointment status (Pending/Approved/Rejected)
+- **Live Status Tracking**: Appointment status changes (Pending/Approved/Rejected) push instantly via WebSocket, plus a notification bell entry
 
 #### Community Forum
 - **Anonymous Posting**: Share experiences without revealing identity
@@ -82,6 +88,19 @@ Built with privacy and accessibility in mind, CampusCare empowers students to ta
 - **PDF Guides**: Mental health resources, coping strategies
 - **Embedded Viewers**: Watch videos and listen to audio directly in the app
 - **Search & Filter**: Find resources by category (Videos, Audio, PDFs, Articles)
+- **Auto-Embedded for AI Search**: Every resource is vectorized on upload so the RAG chat can find and recommend it
+
+#### Weekly AI Wellness Reports
+- **Auto-Generated Every Sunday**: A cron job (`node-cron`) builds a personalized PDF report for every student who logged a mood that week
+- **Gemini-Written Narrative**: A natural-language summary of the week ("You were most stressed on Thursday...") grounded in the student's actual mood entries and notes
+- **Visual Mood Chart**: Rendered server-side into the PDF using `pdf-lib`
+- **On-Demand Generation**: Students can also generate a report immediately from the dashboard
+
+#### Crisis Detection & Escalation
+- **Automatic Flagging**: Triggers on high-risk chat keywords or a 5-day streak of high-intensity mood entries
+- **Immediate Support**: Shows the student a crisis helpline the moment it's detected
+- **Counselor Alerting**: Emails the counselor the student has previously seen (via Nodemailer), with a graceful fallback if SMTP isn't configured
+- **Admin Visibility**: Flags the student with a live red alert on the admin dashboard
 
 ---
 
@@ -100,13 +119,16 @@ Built with privacy and accessibility in mind, CampusCare empowers students to ta
 - **Overview Metrics**: Total users, active students, engagement rates
 - **Mood Analytics**:
   - Pie chart showing mood distribution across campus
-  - Engagement metrics (check-in rate, most stressful days)
+  - **Campus-wide mood trend line chart**, computed via MongoDB aggregation pipelines (`$group`/`$dateToString`), not client-side math
+  - Week-over-week change in negative mood share
   - Top actions students are taking
   - AI-generated recommendations for campus-wide interventions
 - **Chat Insights**: Most discussed topics, peak usage times
 - **Forum Activity**: Engagement trends, most active discussions
 - **Appointment Trends**: Booking patterns, counselor utilization
 - **Peak Usage Analysis**: Heatmap of when students need support most
+- **Crisis Alerts Panel**: Live-updating red alert list of students flagged by the escalation pipeline, with a "mark reviewed" action
+- **Live Broadcast**: Send a campus-wide announcement that reaches every connected student instantly via Socket.IO
 
 #### Resource Management
 - **Upload Media**: Add videos, audio files, and PDFs (up to 100MB each)
@@ -126,16 +148,21 @@ Built with privacy and accessibility in mind, CampusCare empowers students to ta
 - **Charts**: Recharts
 - **Icons**: Lucide React
 - **HTTP Client**: Axios
-- **Notifications**: Sonner
+- **Real-Time**: Socket.IO Client
+- **Notifications**: Sonner + shadcn/ui Toaster
 
 ### Backend
 - **Runtime**: Node.js 18+
 - **Framework**: Express.js
-- **Database**: MongoDB with Mongoose ODM
+- **Database**: MongoDB with Mongoose ODM (aggregation pipelines for analytics)
+- **Real-Time**: Socket.IO (JWT-authenticated WebSocket connections)
 - **Authentication**: JWT (JSON Web Tokens)
 - **Password Hashing**: bcrypt
 - **File Upload**: Multer
-- **AI Integration**: Google Gemini API
+- **AI Integration**: Google Gemini API (chat generation + `gemini-embedding-001` for RAG retrieval)
+- **PDF Generation**: pdf-lib (weekly wellness reports)
+- **Email**: Nodemailer (crisis escalation alerts)
+- **Scheduled Jobs**: node-cron (weekly report generation)
 - **CORS**: Enabled for cross-origin requests
 
 ### DevOps & Tools
@@ -149,31 +176,33 @@ Built with privacy and accessibility in mind, CampusCare empowers students to ta
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     CampusCare System                        │
-├─────────────────────────────────────────────────────────────┤
-│                                                               │
-│  ┌─────────────────┐         ┌─────────────────┐            │
-│  │   Frontend      │         │    Backend      │            │
-│  │   (React)       │ ◄─────► │   (Express)     │            │
-│  │                 │  HTTP   │                 │            │
-│  │  Port: 8082     │  REST   │  Port: 5000     │            │
-│  │                 │  API    │                 │            │
-│  └─────────────────┘         └─────────────────┘            │
-│         │                            │                       │
-│         │                            │                       │
-│         ▼                            ▼                       │
-│  ┌─────────────────┐         ┌─────────────────┐            │
-│  │  localStorage   │         │    MongoDB      │            │
-│  │  (JWT tokens)   │         │   (Database)    │            │
-│  └─────────────────┘         └─────────────────┘            │
-│                                      │                       │
-│                              ┌───────▼─────────┐             │
-│                              │  Google Gemini  │             │
-│                              │   (AI Chat)     │             │
-│                              └─────────────────┘             │
-│                                                               │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│                          CampusCare System                            │
+├───────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌─────────────────┐   HTTP REST    ┌─────────────────┐               │
+│  │   Frontend      │ ◄────────────► │    Backend      │               │
+│  │   (React)       │                │   (Express)     │               │
+│  │                 │  Socket.IO     │                 │               │
+│  │  Port: 8080     │ ◄─────────────►│  Port: 5000     │               │
+│  │                 │  (WebSocket)   │                 │               │
+│  └─────────────────┘                └─────────────────┘               │
+│         │                                    │                        │
+│         ▼                                    ▼                        │
+│  ┌─────────────────┐                ┌─────────────────┐               │
+│  │  localStorage   │                │    MongoDB      │               │
+│  │  (JWT tokens)   │                │   (Database)    │               │
+│  └─────────────────┘                └─────────────────┘               │
+│                                              │                        │
+│                        ┌─────────────────────┼─────────────────────┐  │
+│                        ▼                     ▼                     ▼  │
+│               ┌─────────────────┐  ┌─────────────────┐  ┌───────────┐ │
+│               │  Google Gemini  │  │   node-cron     │  │ Nodemailer│ │
+│               │  Chat + Embed   │  │ Weekly reports  │  │  Crisis   │ │
+│               │  (RAG retrieval)│  │   (pdf-lib)     │  │  alerts   │ │
+│               └─────────────────┘  └─────────────────┘  └───────────┘ │
+│                                                                         │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -235,6 +264,16 @@ PORT=5000
 
 # Environment
 NODE_ENV=development
+
+# --- Optional: Crisis Escalation Email (Nodemailer) ---
+# If unset, crisis alerts still fire (admin dashboard + database) but the
+# email step logs a warning instead of sending - safe to leave unset for dev.
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASS=your-gmail-app-password
+ALERT_FROM_EMAIL=your-email@gmail.com
+COUNSELOR_ALERT_EMAIL=fallback-counselor@campuscare.edu
 ```
 
 **How to Get API Keys:**
@@ -352,9 +391,34 @@ Production: https://your-domain.com/api
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/appointments` | Book appointment |
+| GET | `/appointments/recommend?concern=anxiety` | Get rule-matched counselor recommendations |
 | GET | `/appointments/student` | Get student's appointments |
 | GET | `/appointments/doctor` | Get doctor's appointments |
 | PATCH | `/appointments/:id/status` | Update status (approve/reject) |
+
+### Notification Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/notifications` | Get logged-in user's notification history |
+| PUT | `/notifications/:id/read` | Mark one notification as read |
+| PUT | `/notifications/read-all` | Mark all notifications as read |
+
+### Wellness Report Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/reports/generate` | Generate a wellness PDF report on demand |
+| GET | `/reports` | List the student's past reports |
+
+### Admin Endpoints (selected)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/admin/mood-trends?days=30` | Campus-wide daily mood trend (aggregation pipeline) |
+| POST | `/admin/broadcast` | Push a live announcement to all connected users |
+| GET | `/admin/crisis-alerts?status=open` | List students flagged by the crisis pipeline |
+| PUT | `/admin/crisis-alerts/:id/resolve` | Mark a crisis alert as reviewed |
 
 **For complete API documentation, see [BACKEND_DOCUMENTATION.md](BACKEND_DOCUMENTATION.md)**
 
