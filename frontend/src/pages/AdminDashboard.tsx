@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSocket } from '@/contexts/SocketContext';
 import { useNavigate } from 'react-router-dom';
 import { adminAPI } from '@/services/api';
 import { useToast } from '@/hooks/use-toast';
@@ -104,6 +105,25 @@ interface AppointmentTrends {
   }>;
 }
 
+interface CrisisAlertItem {
+  _id: string;
+  student: { name: string; email: string };
+  type: 'mood_streak' | 'chat_keyword';
+  details: string;
+  status: 'open' | 'reviewed';
+  createdAt: string;
+}
+
+interface MoodTrends {
+  period: string;
+  trend: Array<Record<string, string | number>>;
+  negativeMoodShare: {
+    thisWeek: number | null;
+    lastWeek: number | null;
+    weekOverWeekChange: number | null;
+  };
+}
+
 interface MoodAnalytics {
   totalEntries: number;
   period: string;
@@ -140,9 +160,11 @@ const MOOD_EMOJIS: Record<string, string> = {
 
 const AdminDashboard = () => {
   const { user, logout } = useAuth();
+  const { socket } = useSocket();
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  const [crisisAlerts, setCrisisAlerts] = useState<CrisisAlertItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [chatInsights, setChatInsights] = useState<ChatInsights | null>(null);
@@ -150,6 +172,9 @@ const AdminDashboard = () => {
   const [forumActivity, setForumActivity] = useState<ForumActivity | null>(null);
   const [appointmentTrends, setAppointmentTrends] = useState<AppointmentTrends | null>(null);
   const [moodAnalytics, setMoodAnalytics] = useState<MoodAnalytics | null>(null);
+  const [moodTrends, setMoodTrends] = useState<MoodTrends | null>(null);
+  const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [sendingBroadcast, setSendingBroadcast] = useState(false);
 
   useEffect(() => {
     // Check if user is admin
@@ -164,19 +189,50 @@ const AdminDashboard = () => {
     }
 
     fetchAllData();
+    loadCrisisAlerts();
   }, [user, navigate]);
+
+  // Live: new crisis alerts pop in immediately without a refresh
+  useEffect(() => {
+    if (!socket) return;
+    const handleAlert = () => loadCrisisAlerts();
+    socket.on('crisis:alert', handleAlert);
+    return () => {
+      socket.off('crisis:alert', handleAlert);
+    };
+  }, [socket]);
+
+  const loadCrisisAlerts = async () => {
+    try {
+      const response = await adminAPI.getCrisisAlerts('open');
+      if (response.success) setCrisisAlerts(response.alerts);
+    } catch (error) {
+      console.error('Failed to load crisis alerts:', error);
+    }
+  };
+
+  const handleResolveAlert = async (id: string) => {
+    try {
+      await adminAPI.resolveCrisisAlert(id);
+      setCrisisAlerts((prev) => prev.filter((a) => a._id !== id));
+      toast({ title: 'Alert reviewed', description: 'Marked as handled.' });
+    } catch (error) {
+      toast({ title: 'Failed to resolve alert', variant: 'destructive' });
+    }
+  };
 
   const fetchAllData = async () => {
     try {
       setLoading(true);
 
-      const [overviewRes, chatRes, peakRes, forumRes, appointmentRes, moodRes] = await Promise.all([
+      const [overviewRes, chatRes, peakRes, forumRes, appointmentRes, moodRes, moodTrendsRes] = await Promise.all([
         adminAPI.getDashboardOverview(),
         adminAPI.getChatInsights(),
         adminAPI.getPeakUsage(),
         adminAPI.getForumActivity(),
         adminAPI.getAppointmentTrends(),
         adminAPI.getMoodAnalytics(30),
+        adminAPI.getMoodTrends(30),
       ]);
 
       setOverview(overviewRes.overview);
@@ -185,6 +241,7 @@ const AdminDashboard = () => {
       setForumActivity(forumRes.forumActivity);
       setAppointmentTrends(appointmentRes.appointmentTrends);
       setMoodAnalytics(moodRes.moodAnalytics);
+      setMoodTrends(moodTrendsRes.moodTrends);
     } catch (error: any) {
       toast({
         title: 'Error Loading Data',
@@ -199,6 +256,24 @@ const AdminDashboard = () => {
   const handleLogout = () => {
     logout();
     navigate('/auth');
+  };
+
+  const handleBroadcast = async () => {
+    if (!broadcastMessage.trim()) return;
+    try {
+      setSendingBroadcast(true);
+      await adminAPI.broadcastAnnouncement(broadcastMessage.trim());
+      toast({ title: 'Announcement sent', description: 'All connected students were notified live.' });
+      setBroadcastMessage('');
+    } catch (error: any) {
+      toast({
+        title: 'Broadcast failed',
+        description: error.response?.data?.message || 'Could not send announcement',
+        variant: 'destructive',
+      });
+    } finally {
+      setSendingBroadcast(false);
+    }
   };
 
   if (loading) {
@@ -259,6 +334,63 @@ const AdminDashboard = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        {/* Live broadcast */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 flex flex-col sm:flex-row gap-3 sm:items-center">
+          <div className="flex items-center gap-2 text-gray-700 shrink-0">
+            <AlertCircle className="w-5 h-5 text-purple-600" />
+            <span className="text-sm font-medium">Broadcast a live announcement</span>
+          </div>
+          <input
+            value={broadcastMessage}
+            onChange={(e) => setBroadcastMessage(e.target.value)}
+            placeholder="e.g. Counseling office closed tomorrow due to maintenance"
+            className="flex-1 px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-purple-400"
+            onKeyDown={(e) => e.key === 'Enter' && handleBroadcast()}
+          />
+          <Button onClick={handleBroadcast} disabled={sendingBroadcast || !broadcastMessage.trim()} size="sm">
+            {sendingBroadcast ? 'Sending...' : 'Send to all students'}
+          </Button>
+        </div>
+
+        {/* Crisis Alerts */}
+        {crisisAlerts.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-red-50 border-2 border-red-300 rounded-2xl p-5"
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <AlertCircle className="w-6 h-6 text-red-600" />
+              <h2 className="text-lg font-bold text-red-700">
+                {crisisAlerts.length} student{crisisAlerts.length > 1 ? 's' : ''} may need immediate support
+              </h2>
+            </div>
+            <div className="space-y-3">
+              {crisisAlerts.map((alert) => (
+                <div
+                  key={alert._id}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white rounded-xl p-3 border border-red-200"
+                >
+                  <div>
+                    <p className="font-semibold text-gray-900">
+                      {alert.student?.name}{' '}
+                      <span className="text-xs font-normal text-gray-500">({alert.student?.email})</span>
+                    </p>
+                    <p className="text-sm text-gray-600">{alert.details}</p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {alert.type === 'mood_streak' ? 'Sustained low mood' : 'Flagged in AI chat'} •{' '}
+                      {new Date(alert.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => handleResolveAlert(alert._id)}>
+                    Mark reviewed
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
         {/* Privacy Notice */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -477,6 +609,45 @@ const AdminDashboard = () => {
               <Smile className="w-6 h-6 text-purple-600" />
               <h2 className="text-xl font-bold text-gray-900">Student Mood Analytics</h2>
             </div>
+
+            {moodTrends && moodTrends.trend.length > 0 && (
+              <div className="mb-6">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold text-gray-700">Campus-wide Mood Trend ({moodTrends.period})</h3>
+                  {moodTrends.negativeMoodShare.weekOverWeekChange !== null && (
+                    <span
+                      className={`text-sm font-semibold flex items-center gap-1 ${
+                        moodTrends.negativeMoodShare.weekOverWeekChange > 0 ? 'text-red-600' : 'text-green-600'
+                      }`}
+                    >
+                      <TrendingUp className="w-4 h-4" />
+                      {moodTrends.negativeMoodShare.weekOverWeekChange > 0 ? '+' : ''}
+                      {moodTrends.negativeMoodShare.weekOverWeekChange}% "Down/Anxious" vs last week
+                    </span>
+                  )}
+                </div>
+                <ResponsiveContainer width="100%" height={260}>
+                  <LineChart data={moodTrends.trend}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                    <YAxis allowDecimals={false} />
+                    <Tooltip />
+                    <Legend />
+                    {Object.keys(MOOD_COLORS).map((mood) => (
+                      <Line
+                        key={mood}
+                        type="monotone"
+                        dataKey={mood}
+                        stroke={MOOD_COLORS[mood]}
+                        strokeWidth={2}
+                        connectNulls
+                        dot={false}
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
               {/* Mood Distribution Pie Chart */}

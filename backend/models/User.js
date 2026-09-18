@@ -32,6 +32,12 @@ const userSchema = new mongoose.Schema(
       },
       trim: true,
     },
+    // Doctor-only: concern areas used for smart appointment matching
+    specialization: {
+      type: [String],
+      enum: ['anxiety', 'depression', 'stress', 'career', 'relationships', 'academic', 'general'],
+      default: undefined,
+    },
   },
   { timestamps: true }
 );

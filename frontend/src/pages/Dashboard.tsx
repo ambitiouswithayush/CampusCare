@@ -10,7 +10,9 @@ import {
   Phone,
   Shield,
   Sparkles,
-  X
+  X,
+  FileText,
+  Download
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Link, useNavigate } from 'react-router-dom';
@@ -20,7 +22,8 @@ import { toast } from 'sonner';
 import { MoodTrendsWidget } from '@/components/mood/MoodTrendsWidget';
 import { MoodInsightsWidget } from '@/components/mood/MoodInsightsWidget';
 import { MoodJournalDialog } from '@/components/mood/MoodJournalDialog';
-import { moodAPI } from '@/services/api';
+import { moodAPI, reportsAPI } from '@/services/api';
+import { NotificationBell } from '@/components/NotificationBell';
 
 const quickActions = [
   {
@@ -118,6 +121,34 @@ const Dashboard = () => {
   const [showJournal, setShowJournal] = useState(false);
   const [latestMoodId, setLatestMoodId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [reports, setReports] = useState<Array<{ _id: string; fileUrl: string; createdAt: string; narrative: string }>>([]);
+  const [generatingReport, setGeneratingReport] = useState(false);
+
+  const SERVER_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
+
+  useEffect(() => {
+    if (user && user.role === 'student') {
+      reportsAPI.getMyReports().then((res) => {
+        if (res.success) setReports(res.reports);
+      }).catch(() => {});
+    }
+  }, [user]);
+
+  const handleGenerateReport = async () => {
+    try {
+      setGeneratingReport(true);
+      const response = await reportsAPI.generateReport();
+      if (response.success) {
+        setReports((prev) => [response.report, ...prev]);
+        toast.success('Your weekly wellness report is ready!');
+      }
+    } catch (error) {
+      console.error('Failed to generate report:', error);
+      toast.error('Could not generate report right now');
+    } finally {
+      setGeneratingReport(false);
+    }
+  };
 
   useEffect(() => {
     if (!user) {
@@ -204,6 +235,7 @@ const Dashboard = () => {
             <span className="text-sm text-muted-foreground hidden sm:block">
               Hi, {user.name.split(' ')[0]}!
             </span>
+            <NotificationBell />
             {user.role === 'admin' && (
               <Link to="/admin">
                 <Button variant="outline" size="sm">
@@ -420,6 +452,49 @@ const Dashboard = () => {
             </Button>
           </motion.div>
         </div>
+
+        {/* Weekly AI Wellness Report */}
+        <motion.div
+          className="mt-6 p-6 rounded-3xl bg-card shadow-card border border-border/50"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.7 }}
+        >
+          <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-lavender-light">
+                <FileText className="w-5 h-5 text-lavender" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-foreground">Weekly Wellness Report</h3>
+                <p className="text-sm text-muted-foreground">AI-generated summary of your week, auto-created every Sunday</p>
+              </div>
+            </div>
+            <Button variant="healing" size="sm" onClick={handleGenerateReport} disabled={generatingReport}>
+              <Sparkles className="w-4 h-4" />
+              {generatingReport ? 'Generating...' : 'Generate now'}
+            </Button>
+          </div>
+
+          {reports.length > 0 && (
+            <div className="space-y-2">
+              {reports.slice(0, 3).map((report) => (
+                <a
+                  key={report._id}
+                  href={`${SERVER_URL}${report.fileUrl}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between p-3 rounded-xl bg-background hover:bg-muted transition-colors"
+                >
+                  <span className="text-sm text-foreground">
+                    Report from {new Date(report.createdAt).toLocaleDateString()}
+                  </span>
+                  <Download className="w-4 h-4 text-muted-foreground" />
+                </a>
+              ))}
+            </div>
+          )}
+        </motion.div>
       </main>
 
       {/* Mood Journal Dialog */}

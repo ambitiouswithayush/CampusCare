@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSocket } from '@/contexts/SocketContext';
 import { appointmentsAPI } from '@/services/api';
 import { toast } from 'sonner';
 
@@ -39,6 +40,7 @@ const DoctorDashboard = () => {
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [isLoading, setIsLoading] = useState(true);
   const { user, logout } = useAuth();
+  const { socket } = useSocket();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -50,6 +52,21 @@ const DoctorDashboard = () => {
       loadAppointments();
     }
   }, [user, navigate]);
+
+  // Live update: new bookings appear instantly without a refresh
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleNewAppointment = ({ appointment }: { appointment: Appointment }) => {
+      setAppointments((prev) => [appointment, ...prev]);
+      toast.info(`New appointment request from ${appointment.student?.name || 'a student'}`);
+    };
+
+    socket.on('appointment:new', handleNewAppointment);
+    return () => {
+      socket.off('appointment:new', handleNewAppointment);
+    };
+  }, [socket]);
 
   const loadAppointments = async () => {
     try {

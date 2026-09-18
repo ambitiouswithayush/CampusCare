@@ -35,6 +35,10 @@ const resourceSchema = new mongoose.Schema(
       type: Boolean,
       default: false, // true if file is uploaded, false if external link
     },
+    embedding: {
+      type: [Number],
+      select: false, // never sent to clients, only used server-side for retrieval
+    },
   },
   { timestamps: true }
 );

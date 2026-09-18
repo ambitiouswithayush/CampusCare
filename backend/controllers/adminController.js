@@ -2,6 +2,9 @@ const ChatMessage = require('../models/ChatMessage');
 const Post = require('../models/post');
 const Appointment = require('../models/Appointment');
 const Mood = require('../models/Mood');
+const CrisisAlert = require('../models/CrisisAlert');
+const User = require('../models/User');
+const { notifyUsers } = require('../utils/notify');
 
 // ==========================================
 // ADMIN ANALYTICS CONTROLLER
@@ -478,6 +481,184 @@ exports.moodAnalytics = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error fetching mood analytics',
+      error: error.message,
+    });
+  }
+};
+
+// ==========================================
+// 7. MOOD TRENDS - Day-by-day cohort trend
+// ==========================================
+// @desc    Campus-wide mood counts per day, plus week-over-week change
+// @route   GET /api/admin/mood-trends
+// @access  Private (Admin)
+exports.moodTrends = async (req, res) => {
+  try {
+    const days = parseInt(req.query.days) || 30;
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    // Daily counts per mood (anonymous - only groups on date + mood, never on user)
+    const dailyTrend = await Mood.aggregate([
+      { $match: { createdAt: { $gte: since } } },
+      {
+        $group: {
+          _id: {
+            date: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+            mood: '$mood',
+          },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { '_id.date': 1 } },
+    ]);
+
+    // Reshape into { date, Great, Okay, Down, Anxious } rows for easy charting
+    const byDate = {};
+    dailyTrend.forEach(({ _id, count }) => {
+      if (!byDate[_id.date]) byDate[_id.date] = { date: _id.date };
+      byDate[_id.date][_id.mood] = count;
+    });
+    const trend = Object.values(byDate);
+
+    // Week-over-week change in "negative" mood share (Down + Anxious)
+    const negativeMoods = ['Down', 'Anxious'];
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    const twoWeeksAgo = new Date();
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+
+    const [thisWeek, lastWeek] = await Promise.all([
+      Mood.aggregate([
+        { $match: { createdAt: { $gte: oneWeekAgo } } },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            negative: {
+              $sum: { $cond: [{ $in: ['$mood', negativeMoods] }, 1, 0] },
+            },
+          },
+        },
+      ]),
+      Mood.aggregate([
+        { $match: { createdAt: { $gte: twoWeeksAgo, $lt: oneWeekAgo } } },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            negative: {
+              $sum: { $cond: [{ $in: ['$mood', negativeMoods] }, 1, 0] },
+            },
+          },
+        },
+      ]),
+    ]);
+
+    const pct = (row) =>
+      row && row.total > 0 ? (row.negative / row.total) * 100 : null;
+
+    const thisWeekPct = pct(thisWeek[0]);
+    const lastWeekPct = pct(lastWeek[0]);
+    const weekOverWeekChange =
+      thisWeekPct !== null && lastWeekPct !== null && lastWeekPct !== 0
+        ? Number((thisWeekPct - lastWeekPct).toFixed(1))
+        : null;
+
+    res.json({
+      success: true,
+      moodTrends: {
+        period: `Last ${days} days`,
+        trend,
+        negativeMoodShare: {
+          thisWeek: thisWeekPct !== null ? Number(thisWeekPct.toFixed(1)) : null,
+          lastWeek: lastWeekPct !== null ? Number(lastWeekPct.toFixed(1)) : null,
+          weekOverWeekChange,
+        },
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching mood trends',
+      error: error.message,
+    });
+  }
+};
+
+// ==========================================
+// 8. CRISIS ALERTS - Students flagged by the escalation pipeline
+// ==========================================
+// @desc    List crisis alerts (open by default)
+// @route   GET /api/admin/crisis-alerts?status=open
+// @access  Private (Admin)
+exports.getCrisisAlerts = async (req, res) => {
+  try {
+    const status = req.query.status || 'open';
+    const filter = status === 'all' ? {} : { status };
+
+    const alerts = await CrisisAlert.find(filter)
+      .populate('student', 'name email')
+      .populate('notifiedDoctor', 'name email')
+      .sort({ createdAt: -1 });
+
+    res.json({ success: true, count: alerts.length, alerts });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Mark a crisis alert as reviewed
+// @route   PUT /api/admin/crisis-alerts/:id/resolve
+// @access  Private (Admin)
+exports.resolveCrisisAlert = async (req, res) => {
+  try {
+    const alert = await CrisisAlert.findByIdAndUpdate(
+      req.params.id,
+      { status: 'reviewed' },
+      { new: true }
+    );
+    if (!alert) {
+      return res.status(404).json({ success: false, message: 'Alert not found' });
+    }
+    res.json({ success: true, alert });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==========================================
+// 9. BROADCAST - Admin sends a live announcement
+// ==========================================
+// @desc    Push a real-time announcement to all connected users
+// @route   POST /api/admin/broadcast
+// @access  Private (Admin)
+exports.broadcastAnnouncement = async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message) {
+      return res.status(400).json({ success: false, message: 'Message is required' });
+    }
+
+    const { getIO } = require('../socket');
+    getIO().emit('broadcast:announcement', {
+      message,
+      sentAt: new Date().toISOString(),
+    });
+
+    // Persist so it shows up in the notification bell even for users who
+    // were offline when it was sent.
+    const recipients = await User.find({ role: { $in: ['student', 'doctor'] } }).select('_id');
+    notifyUsers(
+      recipients.map((r) => r._id),
+      { type: 'broadcast', title: 'Campus announcement', message }
+    ).catch((err) => console.error('Broadcast notification persist failed:', err.message));
+
+    res.json({ success: true, message: 'Announcement broadcast' });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error broadcasting announcement',
       error: error.message,
     });
   }

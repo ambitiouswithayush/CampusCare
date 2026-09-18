@@ -1,6 +1,7 @@
 const Resource = require('../models/Resource');
 const path = require('path');
 const fs = require('fs');
+const { getEmbedding } = require('../utils/embeddings');
 
 // @desc    Get all resources
 // @route   GET /api/resources
@@ -72,6 +73,14 @@ exports.createResource = async (req, res) => {
 
     const resource = await Resource.create(resourceData);
 
+    // Best-effort: embed title+description so the AI chat can recommend this
+    // resource contextually. Doesn't block the response if it fails.
+    getEmbedding(`${title}. ${description}`).then((embedding) => {
+      if (embedding) {
+        Resource.findByIdAndUpdate(resource._id, { embedding }).catch(() => {});
+      }
+    });
+
     res.status(201).json({
       success: true,
       resource,
@@ -134,6 +143,12 @@ exports.uploadResource = async (req, res) => {
       fileName: req.file.originalname,
       fileSize: req.file.size,
       isUploaded: true,
+    });
+
+    getEmbedding(`${title}. ${description}`).then((embedding) => {
+      if (embedding) {
+        Resource.findByIdAndUpdate(resource._id, { embedding }).catch(() => {});
+      }
     });
 
     res.status(201).json({

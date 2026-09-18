@@ -2,8 +2,9 @@ const express = require('express');
 const {
   createAppointment,
   getStudentAppointments,
-  getDoctorAppointments,   
+  getDoctorAppointments,
   updateAppointmentStatus,
+  recommendDoctors,
 } = require('../controllers/appointmentController');
 
 const { protect } = require('../middleware/authMiddleware');
@@ -12,6 +13,9 @@ const router = express.Router();
 
 // Student creates appointment
 router.post('/', protect, createAppointment);
+
+// Student gets counselor recommendations based on concern type
+router.get('/recommend', protect, recommendDoctors);
 
 // Student views own appointments
 router.get('/student', protect, getStudentAppointments);

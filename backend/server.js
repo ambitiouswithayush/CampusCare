@@ -2,7 +2,10 @@ const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const path = require('path');
+const http = require('http');
 const connectDB = require('./config/db');
+const { initSocket } = require('./socket');
+const { scheduleWeeklyReports } = require('./services/weeklyReportCron');
 const PORT = process.env.PORT || 5000;
 
 // Load environment variables
@@ -41,6 +44,8 @@ app.use('/api/posts', require('./routes/postRoutes'));
 app.use('/api/resources', require('./routes/resourceRoutes'));
 app.use('/api/moods', require('./routes/moodRoutes')); // Mood tracking routes
 app.use('/api/admin', require('./routes/adminRoutes')); // Admin analytics routes
+app.use('/api/reports', require('./routes/reportRoutes')); // Weekly wellness reports
+app.use('/api/notifications', require('./routes/notificationRoutes')); // Persisted notification bell
 
 
 // Test route
@@ -51,7 +56,12 @@ app.get('/', (req, res) => {
   });
 });
 
+// Create HTTP server manually so Socket.IO can attach to the same port
+const server = http.createServer(app);
+initSocket(server, corsOptions);
+
 // Start server
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  scheduleWeeklyReports();
 });

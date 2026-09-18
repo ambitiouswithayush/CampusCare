@@ -99,6 +99,11 @@ export const appointmentsAPI = {
     return data;
   },
 
+  recommendDoctors: async (concern: string) => {
+    const { data } = await api.get('/appointments/recommend', { params: { concern } });
+    return data;
+  },
+
   getDoctorAppointments: async () => {
     const { data } = await api.get('/appointments/doctor');
     return data;
@@ -194,6 +199,57 @@ export const adminAPI = {
 
   getMoodAnalytics: async (days?: number) => {
     const { data } = await api.get('/admin/mood-analytics', { params: { days } });
+    return data;
+  },
+
+  getMoodTrends: async (days?: number) => {
+    const { data } = await api.get('/admin/mood-trends', { params: { days } });
+    return data;
+  },
+
+  broadcastAnnouncement: async (message: string) => {
+    const { data } = await api.post('/admin/broadcast', { message });
+    return data;
+  },
+
+  getCrisisAlerts: async (status?: string) => {
+    const { data } = await api.get('/admin/crisis-alerts', { params: { status } });
+    return data;
+  },
+
+  resolveCrisisAlert: async (id: string) => {
+    const { data } = await api.put(`/admin/crisis-alerts/${id}/resolve`);
+    return data;
+  },
+};
+
+// Weekly AI Wellness Reports
+export const reportsAPI = {
+  generateReport: async () => {
+    const { data } = await api.post('/reports/generate');
+    return data;
+  },
+
+  getMyReports: async () => {
+    const { data } = await api.get('/reports');
+    return data;
+  },
+};
+
+// Notification bell (persisted history + live updates via socket)
+export const notificationsAPI = {
+  getMyNotifications: async () => {
+    const { data } = await api.get('/notifications');
+    return data;
+  },
+
+  markAsRead: async (id: string) => {
+    const { data } = await api.put(`/notifications/${id}/read`);
+    return data;
+  },
+
+  markAllAsRead: async () => {
+    const { data } = await api.put('/notifications/read-all');
     return data;
   },
 };

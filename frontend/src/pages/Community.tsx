@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSocket } from '@/contexts/SocketContext';
 import { postsAPI } from '@/services/api';
 import { toast } from 'sonner';
 
@@ -37,6 +38,7 @@ const Community = () => {
   const [showNewPost, setShowNewPost] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const { user } = useAuth();
+  const { socket } = useSocket();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -46,6 +48,30 @@ const Community = () => {
       loadPosts();
     }
   }, [user, navigate]);
+
+  // Live updates: join every post's room so new replies appear without a refresh
+  useEffect(() => {
+    if (!socket || posts.length === 0) return;
+
+    posts.forEach((post) => socket.emit('post:join', post._id));
+
+    const handleReply = ({ postId, reply }: { postId: string; reply: Reply }) => {
+      setPosts((prev) =>
+        prev.map((p) =>
+          p._id === postId && !p.replies.some((r) => r._id === reply._id)
+            ? { ...p, replies: [...p.replies, reply] }
+            : p
+        )
+      );
+    };
+
+    socket.on('post:reply', handleReply);
+
+    return () => {
+      posts.forEach((post) => socket.emit('post:leave', post._id));
+      socket.off('post:reply', handleReply);
+    };
+  }, [socket, posts.map((p) => p._id).join(',')]);
 
   const loadPosts = async () => {
     try {

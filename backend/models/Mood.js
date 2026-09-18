@@ -20,6 +20,13 @@ const moodSchema = new mongoose.Schema(
       type: String,
       maxlength: 500,
     },
+    // 1-10 self-reported intensity, used by the crisis-detection pipeline.
+    // Falls back to a mood-based estimate if the student doesn't set one.
+    intensity: {
+      type: Number,
+      min: 1,
+      max: 10,
+    },
     triggeredActions: [
       {
         type: String,

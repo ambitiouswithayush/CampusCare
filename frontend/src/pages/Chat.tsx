@@ -6,7 +6,9 @@ import {
   Bot,
   User,
   AlertTriangle,
-  Heart
+  Heart,
+  BookOpen,
+  ExternalLink
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,12 +17,21 @@ import { useAuth } from '@/contexts/AuthContext';
 import { chatAPI } from '@/services/api';
 import { toast } from 'sonner';
 
+interface RecommendedResource {
+  _id: string;
+  title: string;
+  description: string;
+  category: string;
+  link: string;
+}
+
 interface Message {
   id: string;
   content: string;
   sender: 'user' | 'ai';
   timestamp: Date;
   isCrisis?: boolean;
+  resources?: RecommendedResource[];
 }
 
 const Chat = () => {
@@ -73,6 +84,7 @@ const Chat = () => {
         sender: 'ai',
         timestamp: new Date(),
         isCrisis: response.crisis || false,
+        resources: response.recommendedResources || [],
       };
 
       setMessages(prev => [...prev, aiMessage]);
@@ -150,6 +162,27 @@ const Chat = () => {
                   <p className={`text-xs mt-2 ${message.sender === 'user' ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
                     {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </p>
+
+                  {message.resources && message.resources.length > 0 && (
+                    <div className="mt-3 space-y-2 border-t border-border/50 pt-3">
+                      {message.resources.map((resource) => (
+                        <a
+                          key={resource._id}
+                          href={resource.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-start gap-2 p-2 rounded-xl bg-background/60 hover:bg-background transition-colors"
+                        >
+                          <BookOpen className="w-4 h-4 mt-0.5 shrink-0 text-healing" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate">{resource.title}</p>
+                            <p className="text-xs text-muted-foreground line-clamp-1">{resource.description}</p>
+                          </div>
+                          <ExternalLink className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </motion.div>
             ))}

@@ -1,19 +1,40 @@
 const ChatMessage = require('../models/ChatMessage');
+const Resource = require('../models/Resource');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { getEmbedding, cosineSimilarity } = require('../utils/embeddings');
+const { detectCrisisKeyword, flagChatKeyword } = require('../services/crisisDetection');
 
 // Initialize with API key
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Crisis keywords for detection
-const crisisKeywords = [
-  'suicide',
-  'kill myself',
-  'end my life',
-  'self harm',
-  'hurt myself',
-  'die',
-  'hopeless',
-];
+// Finds the resources most relevant to the student's message using
+// embedding similarity (RAG retrieval step). Returns [] on any failure
+// so chat still works even if embeddings aren't set up yet.
+const findRelevantResources = async (message, topN = 3) => {
+  try {
+    const queryEmbedding = await getEmbedding(message);
+    if (!queryEmbedding) return [];
+
+    const resources = await Resource.find({ embedding: { $exists: true, $ne: [] } })
+      .select('title description category link embedding');
+
+    if (resources.length === 0) return [];
+
+    const scored = resources
+      .map((r) => ({
+        resource: r,
+        score: cosineSimilarity(queryEmbedding, r.embedding),
+      }))
+      .filter((r) => r.score > 0.5) // ignore weak/irrelevant matches
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topN);
+
+    return scored.map((s) => s.resource);
+  } catch (error) {
+    console.error('Resource retrieval failed:', error.message);
+    return [];
+  }
+};
 
 // @desc    Send message to AI Chat
 // @route   POST /api/chat/send
@@ -37,13 +58,14 @@ exports.sendMessage = async (req, res) => {
     });
 
     // 🚨 CRISIS DETECTION
-    const lowerMessage = message.toLowerCase();
+    const matchedKeyword = detectCrisisKeyword(message);
 
-    const isCrisis = crisisKeywords.some(keyword =>
-      lowerMessage.includes(keyword)
-    );
+    if (matchedKeyword) {
+      // Escalate: flags in admin dashboard + emails the counselor
+      flagChatKeyword(req.user._id, matchedKeyword, message).catch((err) =>
+        console.error('Crisis escalation failed:', err.message)
+      );
 
-    if (isCrisis) {
       const emergencyReply = `
 I'm really sorry that you're feeling this way.
 You are not alone, and help is available right now.
@@ -69,6 +91,15 @@ You can also book an appointment with a campus doctor through this app.
       });
     }
 
+    // 🔎 RAG retrieval: find resources in our library relevant to this message
+    const relevantResources = await findRelevantResources(message);
+
+    const resourceContext = relevantResources.length
+      ? `\n\nRelevant resources available in our library (recommend one by name if it genuinely fits):\n${relevantResources
+          .map((r) => `- "${r.title}" (${r.category}): ${r.description}`)
+          .join('\n')}`
+      : '';
+
     // 🧠 AI prompt (FIRST-AID style)
     const prompt = `
 You are an AI-guided mental health first-aid assistant for college students.
@@ -76,6 +107,8 @@ You are NOT a doctor.
 Be empathetic, calm, and supportive.
 Offer simple coping techniques.
 If the user shows distress, gently suggest professional help.
+${resourceContext ? 'If one of the listed resources genuinely fits what the student needs, mention it by its exact title. Do not invent resources that are not listed.' : ''}
+${resourceContext}
 
 Student says: "${message}"
 `;
@@ -101,6 +134,13 @@ Student says: "${message}"
     res.status(200).json({
       success: true,
       reply: aiReply,
+      recommendedResources: relevantResources.map((r) => ({
+        _id: r._id,
+        title: r.title,
+        description: r.description,
+        category: r.category,
+        link: r.link,
+      })),
     });
   } catch (error) {
     console.error('Chat error:', error);

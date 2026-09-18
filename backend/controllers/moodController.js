@@ -1,9 +1,10 @@
 const Mood = require('../models/Mood');
+const { checkMoodStreak } = require('../services/crisisDetection');
 
 // Log a mood
 exports.logMood = async (req, res) => {
   try {
-    const { mood, emoji, note } = req.body;
+    const { mood, emoji, note, intensity } = req.body;
 
     if (!mood || !emoji) {
       return res.status(400).json({
@@ -17,8 +18,12 @@ exports.logMood = async (req, res) => {
       mood,
       emoji,
       note: note || '',
+      intensity: typeof intensity === 'number' ? intensity : undefined,
       triggeredActions: [],
     });
+
+    // Fire-and-forget: doesn't block the response if it fails
+    checkMoodStreak(req.user._id).catch((err) => console.error('Crisis check failed:', err.message));
 
     res.status(201).json({
       success: true,

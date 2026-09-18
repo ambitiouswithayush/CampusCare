@@ -4,7 +4,8 @@ import {
   ArrowLeft,
   Calendar as CalendarIcon,
   Clock,
-  Check
+  Check,
+  Sparkles
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Link, useNavigate } from 'react-router-dom';
@@ -28,10 +29,29 @@ const getNextWeekDates = () => {
   return dates;
 };
 
-// Hardcoded doctor ID - in a real app, you'd fetch this from an API
-const DEFAULT_DOCTOR_ID = '694d72fcff57251ab466d89a'; // Anant (anant.2327csit1200@kiet.edu)
+const CONCERNS = [
+  { value: 'anxiety', label: 'Anxiety' },
+  { value: 'stress', label: 'Stress' },
+  { value: 'depression', label: 'Low mood / Depression' },
+  { value: 'academic', label: 'Academic pressure' },
+  { value: 'career', label: 'Career guidance' },
+  { value: 'relationships', label: 'Relationships' },
+  { value: 'general', label: 'Something else' },
+];
+
+interface DoctorRecommendation {
+  _id: string;
+  name: string;
+  email: string;
+  specialization: string[];
+  reasons: string[];
+}
 
 const Appointments = () => {
+  const [concern, setConcern] = useState<string | null>(null);
+  const [recommendations, setRecommendations] = useState<DoctorRecommendation[]>([]);
+  const [selectedDoctor, setSelectedDoctor] = useState<DoctorRecommendation | null>(null);
+  const [isMatching, setIsMatching] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [reason, setReason] = useState('');
@@ -47,7 +67,31 @@ const Appointments = () => {
     }
   }, [user, navigate]);
 
+  const handlePickConcern = async (value: string) => {
+    setConcern(value);
+    setSelectedDoctor(null);
+    setIsMatching(true);
+    try {
+      const response = await appointmentsAPI.recommendDoctors(value);
+      if (response.success) {
+        setRecommendations(response.recommendations);
+        if (response.recommendations.length > 0) {
+          setSelectedDoctor(response.recommendations[0]);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to get recommendations:', error);
+      toast.error('Could not fetch counselor recommendations');
+    } finally {
+      setIsMatching(false);
+    }
+  };
+
   const handleBook = async () => {
+    if (!selectedDoctor) {
+      toast.error('Please select a counselor');
+      return;
+    }
     if (!selectedDate || !selectedTime) {
       toast.error('Please select a date and time');
       return;
@@ -58,7 +102,7 @@ const Appointments = () => {
       const dateString = selectedDate.toISOString().split('T')[0]; // Format: YYYY-MM-DD
 
       const response = await appointmentsAPI.createAppointment(
-        DEFAULT_DOCTOR_ID,
+        selectedDoctor._id,
         dateString,
         selectedTime,
         reason
@@ -150,6 +194,77 @@ const Appointments = () => {
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
         >
+          <h2 className="text-2xl font-bold text-foreground mb-2">What's this about?</h2>
+          <p className="text-muted-foreground">We'll match you with the counselor who fits best</p>
+        </motion.div>
+
+        <motion.div
+          className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          {CONCERNS.map((c) => (
+            <button
+              key={c.value}
+              onClick={() => handlePickConcern(c.value)}
+              className={`p-3 rounded-2xl border-2 text-sm font-medium transition-all ${
+                concern === c.value
+                  ? 'border-healing bg-healing-light text-healing'
+                  : 'border-border bg-card text-foreground hover:border-healing/50'
+              }`}
+            >
+              {c.label}
+            </button>
+          ))}
+        </motion.div>
+
+        {isMatching && (
+          <p className="text-sm text-muted-foreground mb-8">Finding the best counselor for you...</p>
+        )}
+
+        {concern && !isMatching && recommendations.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-8"
+          >
+            <h2 className="text-xl font-bold text-foreground mb-4 flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-healing" />
+              Recommended Counselor
+            </h2>
+            <div className="space-y-3">
+              {recommendations.map((doc, idx) => (
+                <button
+                  key={doc._id}
+                  onClick={() => setSelectedDoctor(doc)}
+                  className={`w-full text-left p-4 rounded-2xl border-2 transition-all ${
+                    selectedDoctor?._id === doc._id
+                      ? 'border-healing bg-healing-light'
+                      : 'border-border bg-card hover:border-healing/50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="font-semibold text-foreground">{doc.name}</p>
+                    {idx === 0 && (
+                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-healing text-primary-foreground">
+                        Best match
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{doc.reasons.join(' • ')}</p>
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {selectedDoctor && (
+        <>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-8"
+        >
           <h2 className="text-2xl font-bold text-foreground mb-2">Select a Date</h2>
           <p className="text-muted-foreground">Choose an available date for your session</p>
         </motion.div>
@@ -236,6 +351,8 @@ const Appointments = () => {
               {isLoading ? 'Booking...' : 'Request Appointment'}
             </Button>
           </motion.div>
+        )}
+        </>
         )}
       </main>
     </div>

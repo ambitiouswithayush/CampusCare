@@ -1,4 +1,6 @@
 const Post = require('../models/post');
+const { getIO } = require('../socket');
+const { notifyUser } = require('../utils/notify');
 
 // @desc    Create a new post
 // @route   POST /api/posts
@@ -84,6 +86,23 @@ exports.replyToPost = async (req, res) => {
     });
 
     await post.save();
+    await post.populate('replies.user', 'name');
+
+    const reply = post.replies[post.replies.length - 1];
+
+    getIO().to(`post:${post._id}`).emit('post:reply', {
+      postId: post._id,
+      reply,
+    });
+
+    if (post.user.toString() !== req.user._id.toString()) {
+      notifyUser(post.user, {
+        type: 'post_reply',
+        title: 'New reply to your post',
+        message: content.length > 80 ? `${content.slice(0, 80)}...` : content,
+        link: '/community',
+      }).catch((err) => console.error('Notification failed:', err.message));
+    }
 
     res.status(200).json({
       success: true,

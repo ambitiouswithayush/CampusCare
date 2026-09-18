@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Download, ExternalLink, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -22,6 +22,16 @@ interface ResourceViewerProps {
 
 const ResourceViewer = ({ resource, onClose }: ResourceViewerProps) => {
   const [isLoading, setIsLoading] = useState(true);
+
+  // Articles/guides/links render instantly (no media element to wait on),
+  // so there's nothing to fire an onLoad event and clear the spinner.
+  useEffect(() => {
+    if (!['video', 'audio', 'pdf'].includes(resource.category)) {
+      setIsLoading(false);
+    } else {
+      setIsLoading(true);
+    }
+  }, [resource._id, resource.category]);
 
   const getFileUrl = () => {
     if (resource.isUploaded && resource.fileUrl) {
